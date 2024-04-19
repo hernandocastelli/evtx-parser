@@ -8,13 +8,16 @@ from lxml import etree
 from tqdm import tqdm
 from Evtx.Views import evtx_file_xml_view
 
-def main(args):
+def comma_separated_list(value):
+    return [val.strip() for val in value.split(',')]
+
+def main():
     parser = argparse.ArgumentParser(
-        prog='evtx Security Log Analyzer',
+        prog='evtxparser.py',
         description="Analize evtx security logs files")
     parser.add_argument('logfile', type=str, help='Path of the evtx file')
     parser.add_argument('-el', '--eventIDs', nargs='*', type=comma_separated_list, help='Comma separated list of event ids.')
-    parser.add_argument('-fl', '--fields', nargs='*', type=comma_separated_list, help='List comma separated fields for use with the list of event ids.')
+    parser.add_argument('-fl', '--fields', nargs='*', type=comma_separated_list, help='List of comma separated fields for use with the list of event ids.')
     parser.add_argument('-i', '--info', action='store_true', help='Show the header of the logfile')
     parser.add_argument('-e', '--event', action='store_true', help='Count Event IDs in the logfile')
 
@@ -43,13 +46,29 @@ def percentage(number, total):
         return number * 100 / total
 
 def countIDs(logfile):
+    """
+    Counts occurrences of specific Event IDs in a Windows Event Log file and provides their descriptions.
+
+    Parameters:
+    - logfile (str): The path to the Windows Event Log file.
+
+    Example:
+    >>> evtxparser.py -e Security.evtx
+    Event ID    Count   Description
+    --------    -----   -----------
+    4624 (20.00 %)    100     An account was successfully logged on
+    4625 (10.00 %)    50      An account failed to log on
+    ...
+    """
     from collections import Counter
 
-    interestingID = {'1100':'The event logging service has shut down','1102':'The audit log was cleared',
-                    '4624':'An account was successfully logged on','4625':'An account failed to log on',
-                    '4634':'An account was logged off','4648':'A logon was attempted using explicit credentials',
-                    '4720':'A user account was created','4740':'A user account was locked out',
-                    '4672':'Special privileges assigned to new logon'}
+    interestingID = {
+        '1100':'The event logging service has shut down','1102':'The audit log was cleared',
+        '4624':'An account was successfully logged on','4625':'An account failed to log on',
+        '4634':'An account was logged off','4648':'A logon was attempted using explicit credentials',
+        '4720':'A user account was created','4740':'A user account was locked out',
+        '4672':'Special privileges assigned to new logon'
+    }
     event_data = get_events(logfile)
     ids = []
     total = 0
@@ -59,12 +78,23 @@ def countIDs(logfile):
         ids.append(event_id.text)
         total = total + 1
     logonIDs = Counter(ids).most_common()
-    print("Event ID\tCount\tDescription")
-    print("--------\t-----\t-----------")    
+    print("Event ID\t\tCount\t\tDescription")
+    print("--------\t\t-----\t\t-----------")    
     for id in logonIDs:
         print("%s (%.2f %%)" %  (id[0],percentage(id[1],total)),"\t",id[1],"\t",(interestingID.get(id[0])))
 
 def filter(event_data,eventIDs,fields=None):
+    """
+    Filters events based on specified Event IDs and fields.
+
+    Parameters:
+    - event_data (list): List of XML elements representing events.
+    - eventIDs (list): List of Event IDs to filter events.
+    - fields (list, optional): List of field names to include in the filtered events. If None, all fields are included.
+
+    Returns:
+    dict: Dictionary containing filtered events,the values are dictionaries containing field names and their corresponding values.
+    """
     filtered_events = { }
     for evt in event_data:
         system_tag = evt.find("System", evt.nsmap)
@@ -90,6 +120,23 @@ def eventIDs(logfile,eventIDs,fields):
         print(f'Error: {e}')
 
 def info(logfile):
+    """
+    Provides information about a Windows Event Log file.
+
+    Parameters:
+    - logfile (str): The path to the Windows Event Log file.
+
+    Example:
+    >>> evtxparser.py -i Security.evtx
+    Header information
+    Format version  : <major_version>.<minor_version>
+    File is         : <state>
+    Log is full     : <yes/no>
+    Current chunk   : <current_chunk_number> of <total_chunk_count>
+    Oldest chunk    : <oldest_chunk_index>
+    Next record#    : <next_record_number>
+    (prints empty line for formatting)
+    """
     with evtx.Evtx(logfile) as log:
         fh = log.get_file_header()
         print("Header information")
@@ -108,9 +155,6 @@ def info(logfile):
         print(("Oldest chunk    : %d" % (fh.oldest_chunk() + 1)))
         print(("Next record#    : %d" % (fh.next_record_number())))
         print("")
-
-def comma_separated_list(value):
-    return [val.strip() for val in value.split(',')]
 
 if __name__ == "__main__":
     main()
